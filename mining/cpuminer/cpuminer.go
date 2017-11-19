@@ -10,9 +10,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/bytom/blockchain/account"
 	"github.com/bytom/consensus"
 	"github.com/bytom/mining"
 	"github.com/bytom/protocol"
+	"github.com/bytom/protocol/bc"
 	"github.com/bytom/protocol/bc/legacy"
 )
 
@@ -27,6 +29,7 @@ const (
 type CPUMiner struct {
 	sync.Mutex
 	chain             *protocol.Chain
+	accountManager    *account.Manager
 	txPool            *protocol.TxPool
 	numWorkers        uint64
 	started           bool
@@ -58,13 +61,20 @@ func (m *CPUMiner) solveBlock(block *legacy.Block, ticker *time.Ticker, quit cha
 		}
 
 		header.Nonce = i
-		hash := header.Hash()
+		headerHash := header.Hash()
+		hash := magic(header, nil, []*bc.Hash{&headerHash})
 
-		if consensus.CheckProofOfWork(&hash, header.Bits) {
+		if consensus.CheckProofOfWork(hash, header.Bits) {
 			return true
 		}
 	}
 	return false
+}
+
+// This func will become the AI mining algorithm
+func magic(header *legacy.BlockHeader, preSeed *bc.Hash, preBlockHashs []*bc.Hash) *bc.Hash {
+	hash := header.Hash()
+	return &hash
 }
 
 // generateBlocks is a worker that is controlled by the miningWorkerController.
@@ -86,9 +96,7 @@ out:
 		default:
 		}
 
-		//TODO: get address from the wallet
-		payToAddr := []byte{}
-		block, err := mining.NewBlockTemplate(m.chain, m.txPool, payToAddr)
+		block, err := mining.NewBlockTemplate(m.chain, m.txPool, m.accountManager)
 		if err != nil {
 			log.Errorf("Mining: failed on create NewBlockTemplate: %v", err)
 			continue
@@ -189,10 +197,11 @@ func (m *CPUMiner) Start() {
 
 	m.quit = make(chan struct{})
 	m.speedMonitorQuit = make(chan struct{})
-	m.wg.Add(2)
+	m.wg.Add(1)
 	go m.miningWorkerController()
 
 	m.started = true
+	log.Infof("CPU miner started")
 }
 
 // Stop gracefully stops the mining process by signalling all workers, and the
@@ -213,6 +222,7 @@ func (m *CPUMiner) Stop() {
 	close(m.quit)
 	m.wg.Wait()
 	m.started = false
+	log.Info("CPU miner stopped")
 }
 
 // IsMining returns whether or not the CPU miner has been started and is
@@ -266,12 +276,13 @@ func (m *CPUMiner) NumWorkers() int32 {
 	return int32(m.numWorkers)
 }
 
-// New returns a new instance of a CPU miner for the provided configuration.
+// NewCPUMiner returns a new instance of a CPU miner for the provided configuration.
 // Use Start to begin the mining process.  See the documentation for CPUMiner
 // type for more details.
-func NewCPUMiner(c *protocol.Chain, txPool *protocol.TxPool) *CPUMiner {
+func NewCPUMiner(c *protocol.Chain, accountManager *account.Manager, txPool *protocol.TxPool) *CPUMiner {
 	return &CPUMiner{
 		chain:             c,
+		accountManager:    accountManager,
 		txPool:            txPool,
 		numWorkers:        defaultNumWorkers,
 		updateNumWorkers:  make(chan struct{}),
