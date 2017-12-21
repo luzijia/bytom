@@ -4,9 +4,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/bytom/consensus"
+	"github.com/bytom/crypto/sha3pool"
 	"github.com/bytom/protocol/bc"
 	"github.com/bytom/protocol/bc/legacy"
-	"github.com/bytom/protocol/state"
 )
 
 // Generate genesis transaction
@@ -41,10 +41,8 @@ func GenerateGenesisBlock() *legacy.Block {
 		log.Panicf("Fatal create merkelRoot")
 	}
 
-	snap := state.Empty()
-	if err := snap.ApplyTx(genesisCoinbaseTx.Tx); err != nil {
-		log.Panicf("Fatal ApplyTx")
-	}
+	var seed [32]byte
+	sha3pool.Sum256(seed[:], make([]byte, 32))
 
 	genesisBlock := &legacy.Block{
 		BlockHeader: legacy.BlockHeader{
@@ -54,7 +52,6 @@ func GenerateGenesisBlock() *legacy.Block {
 			TimestampMS: 1511318565142,
 			BlockCommitment: legacy.BlockCommitment{
 				TransactionsMerkleRoot: merkleRoot,
-				AssetsMerkleRoot:       snap.Tree.RootHash(),
 			},
 			Bits: 2161727821138738707,
 		},
