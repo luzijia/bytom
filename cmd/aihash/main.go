@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	matSize     = 1 << 9 // Size of matrix
+	matSize     = 1 << 8 // Size of matrix
 	matNum      = 1 << 7 // Number of matrix
 	epochLength = 1 << 7 // Blocks per epoch
 	mulRounds   = 10     // Number of rounds in mulmatrix
