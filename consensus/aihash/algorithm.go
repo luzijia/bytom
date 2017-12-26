@@ -48,52 +48,91 @@ func createSeed(preSeed *bc.Hash, blockHashs []*bc.Hash) []byte {
 	return seed
 }
 
+// // This method places the result into dest in machine byte order.
+// func generateCache(dest []uint32, seed []byte) {
+// 	// Convert our destination slice to a byte buffer
+// 	header := *(*reflect.SliceHeader)(unsafe.Pointer(&dest))
+// 	header.Len *= 4
+// 	header.Cap *= 4
+// 	cache := *(*[]byte)(unsafe.Pointer(&header))
+
+// 	// Calculate the number of thoretical rows (we'll store in one buffer nonetheless)
+// 	size := uint64(len(cache))
+// 	rows := int(size) / hashBytes
+
+// 	// Start a monitoring goroutine to report progress on low end devices
+// 	var progress uint32
+
+// 	done := make(chan struct{})
+// 	defer close(done)
+
+// 	sha512 := makeHasher(sha3.New512())
+
+// 	// Sequentially produce the initial dataset
+// 	sha512(cache, seed)
+// 	for offset := uint64(hashBytes); offset < size; offset += hashBytes {
+// 		sha512(cache[offset:], cache[offset-hashBytes:offset])
+// 		atomic.AddUint32(&progress, 1)
+// 	}
+// 	// Use a low-round version of randmemohash
+// 	temp := make([]byte, hashBytes)
+
+// 	for i := 0; i < cacheRounds; i++ {
+// 		for j := 0; j < rows; j++ {
+// 			var (
+// 				srcOff = ((j - 1 + rows) % rows) * hashBytes
+// 				dstOff = j * hashBytes
+// 				xorOff = (binary.LittleEndian.Uint32(cache[dstOff:]) % uint32(rows)) * hashBytes
+// 			)
+// 			bitutil.XORBytes(temp, cache[srcOff:srcOff+hashBytes], cache[xorOff:xorOff+hashBytes])
+// 			sha512(cache[dstOff:], temp)
+
+// 			atomic.AddUint32(&progress, 1)
+// 		}
+// 	}
+// 	// Swap the byte order on big endian systems and return
+// 	if !isLittleEndian() {
+// 		swap(cache)
+// 	}
+// }
+
 // This method places the result into dest in machine byte order.
 func generateCache(dest []uint32, seed []byte) {
-	// Convert our destination slice to a byte buffer
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&dest))
-	header.Len *= 4
-	header.Cap *= 4
-	cache := *(*[]byte)(unsafe.Pointer(&header))
-
-	// Calculate the number of thoretical rows (we'll store in one buffer nonetheless)
-	size := uint64(len(cache))
-	rows := int(size) / hashBytes
-
-	// Start a monitoring goroutine to report progress on low end devices
-	var progress uint32
-
-	done := make(chan struct{})
-	defer close(done)
-
-	sha512 := makeHasher(sha3.New512())
-
-	// Sequentially produce the initial dataset
-	sha512(cache, seed)
-	for offset := uint64(hashBytes); offset < size; offset += hashBytes {
-		sha512(cache[offset:], cache[offset-hashBytes:offset])
-		atomic.AddUint32(&progress, 1)
+	if N <= 1 || N&(N-1) != 0 {
+		return nil, errors.New("scrypt: N must be > 1 and a power of 2")
 	}
-	// Use a low-round version of randmemohash
-	temp := make([]byte, hashBytes)
-
-	for i := 0; i < cacheRounds; i++ {
-		for j := 0; j < rows; j++ {
-			var (
-				srcOff = ((j - 1 + rows) % rows) * hashBytes
-				dstOff = j * hashBytes
-				xorOff = (binary.LittleEndian.Uint32(cache[dstOff:]) % uint32(rows)) * hashBytes
-			)
-			bitutil.XORBytes(temp, cache[srcOff:srcOff+hashBytes], cache[xorOff:xorOff+hashBytes])
-			sha512(cache[dstOff:], temp)
-
-			atomic.AddUint32(&progress, 1)
-		}
+	if uint64(r)*uint64(p) >= 1<<30 || r > maxInt/128/p || r > maxInt/256 || N > maxInt/128/r {
+		return nil, errors.New("scrypt: parameters are too large")
 	}
-	// Swap the byte order on big endian systems and return
-	if !isLittleEndian() {
-		swap(cache)
+
+	xy := make([]uint32, 64*r)
+	v := make([]uint32, 32*N*r)
+	b := pbkdf2.Key(password, salt, 1, p*128*r, sha256.New)
+
+	for i := 0; i < p; i++ {
+		smix(b[i*128*r:], r, N, v, xy)
 	}
+
+	return pbkdf2.Key(password, b, 1, keyLen, sha256.New), nil
+}
+
+func Key(password, salt []byte, N, r, p, keyLen int) ([]byte, error) {
+	if N <= 1 || N&(N-1) != 0 {
+		return nil, errors.New("scrypt: N must be > 1 and a power of 2")
+	}
+	if uint64(r)*uint64(p) >= 1<<30 || r > maxInt/128/p || r > maxInt/256 || N > maxInt/128/r {
+		return nil, errors.New("scrypt: parameters are too large")
+	}
+
+	xy := make([]uint32, 64*r)
+	v := make([]uint32, 32*N*r)
+	b := pbkdf2.Key(password, salt, 1, p*128*r, sha256.New)
+
+	for i := 0; i < p; i++ {
+		smix(b[i*128*r:], r, N, v, xy)
+	}
+
+	return pbkdf2.Key(password, b, 1, keyLen, sha256.New), nil
 }
 
 // isLittleEndian returns whether the local system is running in little or big
